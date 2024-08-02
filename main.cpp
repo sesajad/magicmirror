@@ -6,8 +6,6 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/signal_set.hpp>
 #include <boost/asio/ip/udp.hpp>
-#include <chrono>
-#include <thread>
 
 #include "spoofer.h"
 
@@ -28,8 +26,6 @@ awaitable<void> near_listen(udp_socket &near_socket, raw_socket &far_socket,
     const std::size_t result = co_await near_socket.async_receive(buffer, boost::asio::use_awaitable);
     co_await send_spoofed_udp<65535>(far_socket, spoofed_endpoint_generator(), far_endpoint,
       buffer_span.subspan(0, result));
-    std::cout << "Received " << result << " bytes from near\n";
-    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
   }
 }
 
