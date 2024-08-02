@@ -15,6 +15,8 @@ using awaitable = boost::asio::awaitable<T>;
 using udp_socket = boost::asio::ip::udp::socket;
 using raw_socket = boost::asio::basic_raw_socket<raw>;
 
+boost::asio::io_context io_context{};
+
 awaitable<void> near_listen(udp_socket &near_socket, raw_socket &far_socket,
                             std::function<boost::asio::ip::udp::endpoint()> spoofed_endpoint_generator,
                             const boost::asio::ip::udp::endpoint &far_endpoint) {
@@ -24,8 +26,9 @@ awaitable<void> near_listen(udp_socket &near_socket, raw_socket &far_socket,
 
   for (;;) {
     const std::size_t result = co_await near_socket.async_receive(buffer, boost::asio::use_awaitable);
-    co_await send_spoofed_udp<65535>(far_socket, spoofed_endpoint_generator(), far_endpoint,
+    auto send_coro = send_spoofed_udp<65535>(far_socket, spoofed_endpoint_generator(), far_endpoint,
       buffer_span.subspan(0, result));
+    co_spawn(io_context, std::move(send_coro), boost::asio::detached);
   }
 }
 
@@ -33,8 +36,7 @@ awaitable<void> far_listen(udp_socket &far_socket, udp_socket &near_socket, cons
   std::array<uint8_t, 1024> buffer;
   for (;;) {
     const std::size_t result = co_await far_socket.async_receive(boost::asio::buffer(buffer), boost::asio::use_awaitable);
-    co_await near_socket.async_send_to(boost::asio::buffer(buffer, result), near_endpoint, boost::asio::use_awaitable);
-    std::cout << "Received " << result << " bytes from far\n";
+    co_spawn(io_context, near_socket.async_send_to(boost::asio::buffer(buffer, result), near_endpoint, boost::asio::use_awaitable), boost::asio::detached);
   }
 }
 
