@@ -8,6 +8,7 @@
 #include <boost/asio/ip/udp.hpp>
 
 #include "spoofer.h"
+#include "cli.h"
 
 template<typename T>
 using awaitable = boost::asio::awaitable<T>;
@@ -41,49 +42,24 @@ awaitable<void> far_listen(udp_socket &far_socket, udp_socket &near_socket, cons
 }
 
 int main(int argc, char *argv[]) {
-  // magicmirror [near-port] [far-ip] [far-port] [spoofed-ip-mask] [spoofed-port-range]
-  if (argc != 9) {
-    std::cerr << "Usage: " << argv[0] << " [near-listen-port] [near-ip] [near-port] [far-listen-port-range] [far-ip] [far-port] [spoofed-ip-mask] [spoofed-port-range]\n";
+  auto action = parse_arguments(argc, argv);
+  if (!action) {
     return 1;
   }
 
-  uint16_t near_listen_port = std::stoi(argv[1]);
-  std::cout << "Near listen port: " << near_listen_port << std::endl;
-
-  boost::asio::ip::udp::endpoint near_endpoint(boost::asio::ip::make_address_v4(argv[2]),
-    std::stoi(argv[3]));
-  std::cout << "Near endpoint: " << near_endpoint << std::endl;
-
-  uint16_t far_listen_port_start = std::stoi(std::string(argv[4]).substr(0, std::string(argv[4]).find('-')));
-  uint16_t far_listen_port_end = std::stoi(std::string(argv[4]).substr(std::string(argv[4]).find('-') + 1));
-  std::cout << "Far listen port range: " << far_listen_port_start << " - " << far_listen_port_end << std::endl;
-
-  // TODO, get a list/range for far endpoints
-  boost::asio::ip::udp::endpoint far_endpoint(boost::asio::ip::make_address_v4(argv[5]),
-    std::stoi(argv[6]));
-  std::cout << "Far endpoint: " << far_endpoint << std::endl;
-
-  auto spoofed_ip = boost::asio::ip::make_address_v4(std::string(argv[7]).substr(0, std::string(argv[7]).find('/')));
-  uint32_t spoofed_ip_mask = (1 << (32 - std::stoi(std::string(argv[7]).substr(std::string(argv[7]).find('/') + 1)))) - 1;
-
-  uint32_t spoofed_ip_start = (spoofed_ip.to_ulong() & ~spoofed_ip_mask);
-  uint32_t spoofed_ip_end = (spoofed_ip.to_ulong() | spoofed_ip_mask);
-  std::cout << "Spoofed IP range: " << boost::asio::ip::address_v4(spoofed_ip_start) << " - " << boost::asio::ip::address_v4(spoofed_ip_end) << std::endl;
-
-  uint16_t spoofed_port_start = std::stoi(std::string(argv[8]).substr(0, std::string(argv[8]).find('-')));
-  uint16_t spoofed_port_end = std::stoi(std::string(argv[8]).substr(std::string(argv[8]).find('-') + 1));
-  std::cout << "Spoofed port range: " << spoofed_port_start << " - " << spoofed_port_end << std::endl;
-
   std::random_device rd;
   std::mt19937 gen(rd());
-  std::uniform_int_distribution<uint32_t> ip_dis(spoofed_ip_start, spoofed_ip_end);
+  std::uniform_int_distribution<uint32_t> ip_dis(action->spoofed_ip_start, action->spoofed_ip_end);
   std::uniform_int_distribution<uint32_t> port_dis(spoofed_port_start, spoofed_port_end);
 
   auto spoofed_endpoint_generator = [&]() {
     return boost::asio::ip::udp::endpoint(boost::asio::ip::address_v4(ip_dis(gen)), port_dis(gen));
-  };
+  }
 
-  boost::asio::io_context io_context{};
+  auto far_endpoint_generator = [&]() {
+    return boost::asio::ip::udp::endpoint(boost::asio::ip::address_v4(ip_dis(gen)), port_dis(gen));
+  }
+
 
   boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
   signals.async_wait([&](auto, auto){ io_context.stop(); });
